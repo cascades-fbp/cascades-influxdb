@@ -19,7 +19,7 @@ Usage of ./components/influxdb/write:
 'host=127.0.0.1:8086,user=root,password=root,db=demo' -> OPTIONS MyInfluxDB(influxdb/write)
 
 // Connect errors port to console
-IDBW ERR -> IN Errors(core/console)
+MyInfluxDB ERR -> IN Errors(core/console)
 
 // Send test data as IPs
 '{"name":"tests","columns":["id","name","value"],"points":[[1,"Alex",true]]}' -> IN MyInfluxDB
