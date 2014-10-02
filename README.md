@@ -15,13 +15,13 @@ Usage of ./components/influxdb/write:
 ## Example
 
 ```
-// Send options IP
+# Send options IP
 'host=127.0.0.1:8086,user=root,password=root,db=demo' -> OPTIONS MyInfluxDB(influxdb/write)
 
-// Connect errors port to console
+# Connect errors port to console
 MyInfluxDB ERR -> IN Errors(core/console)
 
-// Send test data as IPs
+# Send test data as IPs
 '{"name":"tests","columns":["id","name","value"],"points":[[1,"Alex",true]]}' -> IN MyInfluxDB
 '{"name":"tests","columns":["id","name","value"],"points":[[2,"Bob",false]]}' -> IN MyInfluxDB
 '{"name":"tests","columns":["id","name","value"],"points":[[3,"Dick",true]]}' -> IN MyInfluxDB
