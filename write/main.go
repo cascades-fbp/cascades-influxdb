@@ -122,6 +122,7 @@ func main() {
 				influxDB = kv[1]
 			}
 		}
+		optionsPort.Close()
 		break
 	}
 
