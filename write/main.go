@@ -37,10 +37,6 @@ func validateArgs() {
 		flag.Usage()
 		os.Exit(1)
 	}
-	if *errorEndpoint == "" {
-		flag.Usage()
-		os.Exit(1)
-	}
 }
 
 func openPorts() {
