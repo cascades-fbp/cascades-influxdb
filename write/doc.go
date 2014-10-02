@@ -5,7 +5,7 @@ import (
 )
 
 var registryEntry = &library.Entry{
-	Description: "Components to writing events into InfluxDB",
+	Description: "Receives a series JSON structure to be written directly to a configured (through options port) InfluxDB",
 	Inports: []library.EntryPort{
 		library.EntryPort{
 			Name:        "IN",
