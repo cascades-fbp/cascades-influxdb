@@ -126,15 +126,20 @@ func main() {
 		break
 	}
 
-	var client *influxdb.Client
-	client, err := influxdb.NewClient(&influxdb.ClientConfig{
+	var (
+		config *influxdb.ClientConfig
+		client *influxdb.Client
+	)
+	config = &influxdb.ClientConfig{
 		Host:     influxHost,
 		Username: influxUsername,
 		Password: influxPassword,
 		Database: influxDB,
-	})
+	}
+	log.Printf("Using ClientConfig = %#v", config)
+	client, err := influxdb.NewClient(config)
 	if err != nil {
-		fmt.Println("Error connecting to influxDB:", err.Error())
+		fmt.Println("Error creating InfluxDB client:", err.Error())
 		os.Exit(1)
 	}
 
