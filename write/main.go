@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	zmq "github.com/alecthomas/gozmq"
-	"github.com/cascades-fbp/cascades/components/utils"
-	"github.com/cascades-fbp/cascades/runtime"
-	influxdb "github.com/influxdb/influxdb/client"
 	"io/ioutil"
 	"log"
 	"os"
 	"strings"
+
+	"github.com/cascades-fbp/cascades/components/utils"
+	"github.com/cascades-fbp/cascades/runtime"
+	influxdb "github.com/influxdb/influxdb/client"
+	zmq "github.com/pebbe/zmq4"
 )
 
 var (
@@ -23,7 +24,6 @@ var (
 	debug           = flag.Bool("debug", false, "Enable debug mode")
 
 	// Internal
-	context                      *zmq.Context
 	inPort, optionsPort, errPort *zmq.Socket
 	err                          error
 )
@@ -40,17 +40,14 @@ func validateArgs() {
 }
 
 func openPorts() {
-	context, err = zmq.NewContext()
+	optionsPort, err = utils.CreateInputPort(*optionsEndpoint)
 	utils.AssertError(err)
 
-	optionsPort, err = utils.CreateInputPort(context, *optionsEndpoint)
-	utils.AssertError(err)
-
-	inPort, err = utils.CreateInputPort(context, *inputEndpoint)
+	inPort, err = utils.CreateInputPort(*inputEndpoint)
 	utils.AssertError(err)
 
 	if *errorEndpoint != "" {
-		errPort, err = utils.CreateOutputPort(context, *errorEndpoint)
+		errPort, err = utils.CreateOutputPort(*errorEndpoint)
 		utils.AssertError(err)
 	}
 }
@@ -61,7 +58,7 @@ func closePorts() {
 	if errPort != nil {
 		errPort.Close()
 	}
-	context.Close()
+	zmq.Term()
 }
 
 func main() {
@@ -86,7 +83,7 @@ func main() {
 	defer closePorts()
 
 	ch := utils.HandleInterruption()
-	err = runtime.SetupShutdownByDisconnect(context, inPort, "influx-write.in", ch)
+	err = runtime.SetupShutdownByDisconnect(inPort, "influx-write.in", ch)
 	utils.AssertError(err)
 
 	log.Println("Waiting for options to arrive...")
@@ -96,7 +93,7 @@ func main() {
 		ip                                                           [][]byte
 	)
 	for {
-		ip, err = optionsPort.RecvMultipart(0)
+		ip, err = optionsPort.RecvMessageBytes(0)
 		if err != nil {
 			log.Println("Error receiving IP:", err.Error())
 			continue
@@ -146,7 +143,7 @@ func main() {
 	log.Println("Started...")
 	var series *influxdb.Series
 	for {
-		ip, err = inPort.RecvMultipart(0)
+		ip, err = inPort.RecvMessageBytes(0)
 		if err != nil {
 			log.Println("Error receiving message:", err.Error())
 			continue
@@ -163,7 +160,7 @@ func main() {
 		if err = client.WriteSeries([]*influxdb.Series{series}); err != nil {
 			log.Println("Error writing series:", err.Error())
 			if errPort != nil {
-				errPort.SendMultipart(runtime.NewPacket([]byte(err.Error())), zmq.NOBLOCK)
+				errPort.SendMessage(runtime.NewPacket([]byte(err.Error())))
 			}
 			continue
 		}
