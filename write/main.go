@@ -8,6 +8,8 @@ import (
 	"log"
 	"os"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/cascades-fbp/cascades/components/utils"
 	"github.com/cascades-fbp/cascades/runtime"
@@ -25,6 +27,7 @@ var (
 
 	// Internal
 	inPort, optionsPort, errPort *zmq.Socket
+	inCh, errCh                  chan bool
 	err                          error
 )
 
@@ -40,14 +43,14 @@ func validateArgs() {
 }
 
 func openPorts() {
-	optionsPort, err = utils.CreateInputPort(*optionsEndpoint)
+	optionsPort, err = utils.CreateInputPort("influxdb/write.options", *optionsEndpoint, nil)
 	utils.AssertError(err)
 
-	inPort, err = utils.CreateInputPort(*inputEndpoint)
+	inPort, err = utils.CreateInputPort("influxdb/write.in", *inputEndpoint, inCh)
 	utils.AssertError(err)
 
 	if *errorEndpoint != "" {
-		errPort, err = utils.CreateOutputPort(*errorEndpoint)
+		errPort, err = utils.CreateOutputPort("influxdb/write.err", *errorEndpoint, errCh)
 		utils.AssertError(err)
 	}
 }
@@ -79,12 +82,53 @@ func main() {
 
 	validateArgs()
 
+	ch := utils.HandleInterruption()
+	inCh = make(chan bool)
+	errCh = make(chan bool)
+
 	openPorts()
 	defer closePorts()
 
-	ch := utils.HandleInterruption()
-	err = runtime.SetupShutdownByDisconnect(inPort, "influx-write.in", ch)
-	utils.AssertError(err)
+	ports := 1
+	if errPort != nil {
+		ports++
+	}
+
+	waitCh := make(chan bool)
+	go func(num int) {
+		total := 0
+		for {
+			select {
+			case v := <-inCh:
+				if !v {
+					log.Println("IN port is closed. Interrupting execution")
+					ch <- syscall.SIGTERM
+				} else {
+					total++
+				}
+			case v := <-errCh:
+				if !v {
+					log.Println("ERR port is closed. Interrupting execution")
+					ch <- syscall.SIGTERM
+				} else {
+					total++
+				}
+			}
+			if total >= num && waitCh != nil {
+				waitCh <- true
+			}
+		}
+	}(ports)
+
+	log.Println("Waiting for port connections to establish... ")
+	select {
+	case <-waitCh:
+		log.Println("Ports connected")
+		waitCh = nil
+	case <-time.Tick(30 * time.Second):
+		log.Println("Timeout: port connections were not established within provided interval")
+		os.Exit(1)
+	}
 
 	log.Println("Waiting for options to arrive...")
 	var (
