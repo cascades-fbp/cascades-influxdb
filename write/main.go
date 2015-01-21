@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
 	"syscall"
 	"time"
@@ -28,41 +29,9 @@ var (
 	// Internal
 	inPort, optionsPort, errPort *zmq.Socket
 	inCh, errCh                  chan bool
+	exitCh                       chan os.Signal
 	err                          error
 )
-
-func validateArgs() {
-	if *optionsEndpoint == "" {
-		flag.Usage()
-		os.Exit(1)
-	}
-	if *inputEndpoint == "" {
-		flag.Usage()
-		os.Exit(1)
-	}
-}
-
-func openPorts() {
-	optionsPort, err = utils.CreateInputPort("influxdb/write.options", *optionsEndpoint, nil)
-	utils.AssertError(err)
-
-	inPort, err = utils.CreateInputPort("influxdb/write.in", *inputEndpoint, inCh)
-	utils.AssertError(err)
-
-	if *errorEndpoint != "" {
-		errPort, err = utils.CreateOutputPort("influxdb/write.err", *errorEndpoint, errCh)
-		utils.AssertError(err)
-	}
-}
-
-func closePorts() {
-	optionsPort.Close()
-	inPort.Close()
-	if errPort != nil {
-		errPort.Close()
-	}
-	zmq.Term()
-}
 
 func main() {
 	flag.Parse()
@@ -82,10 +51,23 @@ func main() {
 
 	validateArgs()
 
-	ch := utils.HandleInterruption()
+	// Communication channels
 	inCh = make(chan bool)
 	errCh = make(chan bool)
+	exitCh = make(chan os.Signal, 1)
 
+	// Start the communication & processing logic
+	go mainLoop()
+
+	// Wait for the end...
+	signal.Notify(exitCh, os.Interrupt, syscall.SIGTERM)
+	<-exitCh
+
+	log.Println("Done")
+}
+
+// mainLoop initiates all ports and handles the traffic
+func mainLoop() {
 	openPorts()
 	defer closePorts()
 
@@ -102,14 +84,16 @@ func main() {
 			case v := <-inCh:
 				if !v {
 					log.Println("IN port is closed. Interrupting execution")
-					ch <- syscall.SIGTERM
+					exitCh <- syscall.SIGTERM
+					break
 				} else {
 					total++
 				}
 			case v := <-errCh:
 				if !v {
 					log.Println("ERR port is closed. Interrupting execution")
-					ch <- syscall.SIGTERM
+					exitCh <- syscall.SIGTERM
+					break
 				} else {
 					total++
 				}
@@ -127,7 +111,8 @@ func main() {
 		waitCh = nil
 	case <-time.Tick(30 * time.Second):
 		log.Println("Timeout: port connections were not established within provided interval")
-		os.Exit(1)
+		exitCh <- syscall.SIGTERM
+		return
 	}
 
 	log.Println("Waiting for options to arrive...")
@@ -181,7 +166,8 @@ func main() {
 	client, err := influxdb.NewClient(config)
 	if err != nil {
 		fmt.Println("Error creating InfluxDB client:", err.Error())
-		os.Exit(1)
+		exitCh <- syscall.SIGTERM
+		return
 	}
 
 	log.Println("Started...")
@@ -209,4 +195,41 @@ func main() {
 			continue
 		}
 	}
+}
+
+// validateArgs checks all required flags
+func validateArgs() {
+	if *optionsEndpoint == "" {
+		flag.Usage()
+		os.Exit(1)
+	}
+	if *inputEndpoint == "" {
+		flag.Usage()
+		os.Exit(1)
+	}
+}
+
+// openPorts create ZMQ sockets and start socket monitoring loops
+func openPorts() {
+	optionsPort, err = utils.CreateInputPort("influxdb/write.options", *optionsEndpoint, nil)
+	utils.AssertError(err)
+
+	inPort, err = utils.CreateInputPort("influxdb/write.in", *inputEndpoint, inCh)
+	utils.AssertError(err)
+
+	if *errorEndpoint != "" {
+		errPort, err = utils.CreateOutputPort("influxdb/write.err", *errorEndpoint, errCh)
+		utils.AssertError(err)
+	}
+}
+
+// closePorts closes all active ports and terminates ZMQ context
+func closePorts() {
+	log.Println("Closing ports...")
+	optionsPort.Close()
+	inPort.Close()
+	if errPort != nil {
+		errPort.Close()
+	}
+	zmq.Term()
 }
